@@ -1,11 +1,11 @@
-__pycache__/
+__pycache__
 *.pyc
 *.pyo
 *.pyd
-venv/
-.env/
-.vscode/
-.idea/
+venv
+.env
+.vscode
+.idea
 .DS_Store
 *.swp
 *.log
