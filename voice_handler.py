@@ -1,90 +1,92 @@
-import pyttsx3
-import speech_recognition as sr
+import asyncio
 import threading
 import queue
-import time
+import tempfile
+import os
+import speech_recognition as sr
+import edge_tts
 
 class VoiceHandler:
     def __init__(self):
-        # Text-to-Speech setup
-        self.tts_engine = pyttsx3.init()
-        self.setup_tts()
-        
-        # Speech-to-Text setup
+        # Speech recognition setup
         self.recognizer = sr.Recognizer()
         self.microphone = sr.Microphone()
         
-        # Adjust for ambient noise
+        # Adjust for ambient noise once
         print("Calibrating microphone for ambient noise...")
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=2)
         print("Microphone calibrated!")
-        
-        # Queue for speech synthesis
+
+        # Queue for TTS
         self.speech_queue = queue.Queue()
         self.is_speaking = False
-        
-        # Start speech synthesis thread
-        self.speech_thread = threading.Thread(target=self._speech_worker, daemon=True)
+        self.stop_flag = False
+
+        # Start async TTS thread
+        self.speech_thread = threading.Thread(target=self._run_tts_worker, daemon=True)
         self.speech_thread.start()
-    
-    def setup_tts(self):
-        """Configure TTS settings for natural speech"""
-        voices = self.tts_engine.getProperty('voices')
-        if voices:
-            # Use the first available voice (you can customize this)
-            self.tts_engine.setProperty('voice', voices[5].id)
-        
-        # Set speech rate and volume
-        self.tts_engine.setProperty('rate', 170)  # Words per minute
-        self.tts_engine.setProperty('volume', 0.8)  # Volume level 0-1
-    
-    def speak(self, text: str):
-        """Add text to speech queue"""
-        self.speech_queue.put(text)
-    
-    def _speech_worker(self):
-        """Background worker for speech synthesis"""
-        while True:
+
+    # -----------------------
+    #  Async TTS Handling
+    # -----------------------
+    async def _speak_async(self, text: str):
+        """Speak text asynchronously using edge-tts"""
+        try:
+            communicate = edge_tts.Communicate(text, voice="en-US-JennyNeural", rate="+0%")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                output_path = tmp.name
+            await communicate.save(output_path)
+            os.system(f"ffplay -nodisp -autoexit -loglevel quiet {output_path}")
+            os.remove(output_path)
+        except Exception as e:
+            print(f"TTS error: {e}")
+
+    def _run_tts_worker(self):
+        """Background thread for speaking text from the queue"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        while not self.stop_flag:
             try:
                 text = self.speech_queue.get(timeout=1)
                 self.is_speaking = True
-                self.tts_engine.say(text)
-                self.tts_engine.runAndWait()
+                loop.run_until_complete(self._speak_async(text))
                 self.is_speaking = False
-                time.sleep(0.1)  # Small pause between speeches
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"Speech synthesis error: {e}")
+                print(f"TTS Worker error: {e}")
                 self.is_speaking = False
-    
+
+    def speak(self, text: str):
+        """Queue text to be spoken"""
+        if not text:
+            return
+        self.speech_queue.put(text)
+
+    # -----------------------
+    #  Speech Recognition
+    # -----------------------
     def listen(self, timeout: int = 5, phrase_time_limit: int = 10) -> str:
-        """Listen for user speech and convert to text"""
+        """Listen and recognize speech using Google API"""
         try:
             with self.microphone as source:
                 print("Listening...")
-                audio = self.recognizer.listen(
-                    source, 
-                    timeout=timeout, 
-                    phrase_time_limit=phrase_time_limit
-                )
-            
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
             print("Processing speech...")
             text = self.recognizer.recognize_google(audio)
             print(f"You said: {text}")
             return text.lower()
-            
         except sr.WaitTimeoutError:
             return ""
         except sr.UnknownValueError:
-            print("Sorry, I couldn't understand what you said.")
+            print("Sorry, I couldn't understand that.")
             return ""
         except sr.RequestError as e:
-            print(f"Error with speech recognition service: {e}")
+            print(f"Speech recognition service error: {e}")
             return ""
-    
-    def stop_speaking(self):
-        """Stop current speech"""
-        self.tts_engine.stop()
+
+    def stop(self):
+        """Stop the background threads"""
+        self.stop_flag = True
         self.is_speaking = False
