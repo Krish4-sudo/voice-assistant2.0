@@ -95,3 +95,4 @@ if __name__ == "__main__":
         assistant.run()
     except Exception as e:
         print(f"Failed to start voice assistant: {e}")
+

@@ -19,8 +19,8 @@ class OpenRouterClient:
         # Add initial system message
         self.conversation_manager.add_message("system", self.system_prompt)
     
-    def generate_response(self, user_input: str, model: str = "anthropic/claude-3.5-sonnet") -> str:
-        """Generate response using OpenRouter API with conversation history"""
+    def generate_response_stream(self, user_input: str, model: str = "anthropic/claude-3.5-sonnet"):
+        """Generate response using OpenRouter API with streaming - yields chunks in real-time"""
         
         # Add user message to history
         self.conversation_manager.add_message("user", user_input)
@@ -32,7 +32,51 @@ class OpenRouterClient:
             response = self.client.chat.completions.create(
                 model=model,
                 messages=messages,
-                max_tokens=150,
+                max_tokens=100,
+                stream=True,
+                temperature=0.7,
+                top_p=0.9,
+            )
+            
+            full_response = ""
+            
+            # Iterate through the stream and yield each chunk
+            for chunk in response:
+                # Check if chunk has choices and delta
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    
+                    # Extract content if it exists
+                    if hasattr(delta, 'content') and delta.content is not None:
+                        content = delta.content
+                        full_response += content
+                        yield content  # Yield immediately for real-time TTS
+            
+            # Add complete response to history
+            if full_response:
+                self.conversation_manager.add_message("assistant", full_response)
+            
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            print(error_msg)
+            self.conversation_manager.add_message("assistant", error_msg)
+            yield error_msg
+    
+    def generate_response(self, user_input: str, model: str = "anthropic/claude-3.5-sonnet") -> str:
+        """Generate complete response (non-streaming) - waits for full response"""
+        
+        # Add user message to history
+        self.conversation_manager.add_message("user", user_input)
+        
+        try:
+            # Get conversation context including system message
+            messages = self.conversation_manager.get_conversation_context()
+            
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=100,
+                stream=False,  # Non-streaming
                 temperature=0.7,
                 top_p=0.9,
             )
