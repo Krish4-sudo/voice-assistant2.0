@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from openrouter_client import OpenRouterClient
 from voice_handler import VoiceHandler
 import json
+import time
 
 class VoiceAssistant:
     def __init__(self):
@@ -44,6 +45,11 @@ class VoiceAssistant:
                     farewell = "Goodbye! It was nice talking with you."
                     print(f"Assistant: {farewell}")
                     self.voice_handler.speak(farewell)
+
+                    while self.voice_handler.is_speaking or not self.voice_handler.speech_queue.empty():
+                        time.sleep(0.1)
+
+
                     self.is_listening = False
                     break
                 
